@@ -1,7 +1,0 @@
-{"transaction_id": "txn_5ce901fa84ed4d6e99e17f0f96b4d48d", "is_fraud": 1, "fraud_type": "geo_impossible", "label_timestamp": "2026-03-12T12:50:00Z"}
-{"transaction_id": "txn_cca116e3a0d14af18b78010901e9648c", "is_fraud": 1, "fraud_type": "geo_impossible", "label_timestamp": "2026-03-12T15:53:00Z"}
-{"transaction_id": "txn_a87f7a3ee2d844b49f5784e5241ca24c", "is_fraud": 1, "fraud_type": "geo_impossible", "label_timestamp": "2026-03-12T23:39:00Z"}
-{"transaction_id": "txn_60e23eecf0354c038a090947cf00e4c0", "is_fraud": 1, "fraud_type": "card_testing", "label_timestamp": "2026-03-12T14:35:00Z"}
-{"transaction_id": "txn_881b530cb056485c8a24b667115fbfcd", "is_fraud": 1, "fraud_type": "card_testing", "label_timestamp": "2026-03-12T04:46:00Z"}
-{"transaction_id": "txn_ae0f1b6e3f36400495908999df7cdcbb", "is_fraud": 1, "fraud_type": "card_testing", "label_timestamp": "2026-03-12T01:26:00Z"}
-{"transaction_id": "txn_64fef7d60fbc44e8aa17b7b3425dbbba", "is_fraud": 1, "fraud_type": "account_takeover", "label_timestamp": "2026-03-12T02:40:00Z"}

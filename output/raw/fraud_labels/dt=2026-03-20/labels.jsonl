@@ -1,2 +1,0 @@
-{"transaction_id": "txn_1cd10e891f8b4928aa067fe4445fd908", "is_fraud": 1, "fraud_type": "geo_impossible", "label_timestamp": "2026-03-20T02:38:00Z"}
-{"transaction_id": "txn_7e34eb1a6a6f4e538ab8d36877ae1e21", "is_fraud": 1, "fraud_type": "geo_impossible", "label_timestamp": "2026-03-20T19:31:00Z"}

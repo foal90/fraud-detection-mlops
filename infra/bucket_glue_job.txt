@@ -1,2 +1,0 @@
-bucket = "fraud-mlops-lake-358441362853"
-glue_job = "fraud-mlops-bronze-ingest"

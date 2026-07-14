@@ -13,9 +13,9 @@ set -euo pipefail   # -e: corta si algo falla | -u: error si usas var no definid
 
 # ---------- configuracion ----------
 REGION="${REGION:-us-east-1}"
-INFRA_DIR="${INFRA_DIR:/Users/fernandoflores/AWS/fraud-mlops/infra}"
-RAW_DIR="${RAW_DIR:/Users/fernandoflores/AWS/fraud-mlops/output/raw}"
-SCRIPT_LOCAL="${SCRIPT_LOCAL:/Users/fernandoflores/AWS/fraud-mlops/glue_jobs/bronze_ingest.py}"
+INFRA_DIR="${INFRA_DIR:-infra}"
+RAW_DIR="${RAW_DIR:-output/raw}"
+SCRIPT_LOCAL="${SCRIPT_LOCAL:-glue_jobs/bronze_ingest.py}"
 POLL_SECONDS="${POLL_SECONDS:-15}"
 
 export AWS_DEFAULT_REGION="$REGION"

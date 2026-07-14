@@ -61,13 +61,17 @@ These are the choices that make this a production-shaped pipeline rather than a 
 
 **Infrastructure as Code.** The full stack — S3 bucket, IAM role, catalog database, Glue job — is declared in Terraform. `terraform apply` builds it; `terraform destroy` tears it down cleanly (which doubles as cost control).
 
+**Repeatable operations.** Running the pipeline is a single command (`./run_bronze.sh`) rather than a sequence of copy-pasted CLI calls. The script fails fast, validates its prerequisites, sources configuration from Terraform outputs instead of hardcoded values, and polls the job to completion — so a run is reproducible for anyone who clones the repo.
+
 ## Repository structure
 
 ```
 fraud-detection-mlops/
 ├── README.md
+├── requirements.txt          # pinned Python dependencies
+├── run_bronze.sh             # deploy + run the Bronze job end to end
 ├── data_generator/
-│   └── data_generator.py          # synthetic transactions + delayed fraud labels+dimensions
+│   └── data_generator.py           # synthetic transactions + delayed fraud labels + dimensions
 ├── glue_jobs/
 │   └── bronze_ingest.py      # raw JSONL → idempotent Iceberg tables
 └── infra/
@@ -78,29 +82,31 @@ fraud-detection-mlops/
 
 ## How to run
 
-**Prerequisites:** an AWS account, the AWS CLI configured (`aws configure`), and Terraform (native to your CPU architecture).
+**Prerequisites:** an AWS account, the AWS CLI configured (`aws configure`), and Terraform (built for your CPU architecture — on Apple Silicon, verify with `file $(which terraform)`).
+
+All commands run from the repository root.
 
 ```bash
-# 1. Provision infrastructure
-cd infra
-export AWS_DEFAULT_REGION=us-east-1
-terraform init
-terraform apply
+# 1. Set up the Python environment and generate the dataset
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python data_generator/generate.py --customers 2000 --days 60 --out ./output --seed 42
 
-BUCKET=$(terraform output -raw bucket)
-JOB=$(terraform output -raw glue_job)
+# 2. Provision infrastructure
+terraform -chdir=infra init
+terraform -chdir=infra apply
 
-# 2. Generate data locally and upload the raw landing to S3
-python ../data_generator/generate.py --customers 2000 --days 60 --out ./output
-aws s3 sync ./output/raw "s3://$BUCKET/raw"
+# 3. Deploy and run the Bronze job (uploads script, syncs raw, polls to completion)
+./run_bronze.sh
 
-# 3. Run the Bronze ingestion job
-RUN_ID=$(aws glue start-job-run --job-name "$JOB" --query JobRunId --output text)
-aws glue get-job-run --job-name "$JOB" --run-id "$RUN_ID" \
-  --query 'JobRun.JobRunState' --output text   # wait for SUCCEEDED
+# 4. Tear everything down when finished
+terraform -chdir=infra destroy
+```
 
-# 4. Tear everything down when done
-terraform destroy
+`run_bronze.sh` reads the bucket and job name straight from the Terraform outputs, uploads the Glue script, syncs the raw landing to S3, triggers the job, and polls until it reports `SUCCEEDED` or fails with its error message. Defaults can be overridden without editing the script:
+
+```bash
+REGION=us-west-2 RAW_DIR=data/raw ./run_bronze.sh
 ```
 
 **Validate in Athena** (database `bronze`):

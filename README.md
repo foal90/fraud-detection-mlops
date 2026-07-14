@@ -67,7 +67,7 @@ These are the choices that make this a production-shaped pipeline rather than a 
 fraud-detection-mlops/
 ├── README.md
 ├── data_generator/
-│   └── generate.py          # synthetic transactions + delayed fraud labels + dimensions
+│   └── data_generator.py          # synthetic transactions + delayed fraud labels+dimensions
 ├── glue_jobs/
 │   └── bronze_ingest.py      # raw JSONL → idempotent Iceberg tables
 └── infra/

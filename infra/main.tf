@@ -34,8 +34,8 @@ resource "aws_s3_bucket" "lake" {
 resource "aws_s3_object" "bronze_script" {
   bucket = aws_s3_bucket.lake.id
   key    = "scripts/bronze_ingest.py"
-  source = "${path.module}/bronze_ingest.py"
-  etag   = filemd5("${path.module}/bronze_ingest.py")
+  source = "${path.module}/../glue_jobs/bronze_ingest.py"
+  etag   = filemd5("${path.module}/../glue_jobs/bronze_ingest.py")
 }
 
 # ---------- Rol IAM para Glue ----------

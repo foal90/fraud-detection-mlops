@@ -1,0 +1,9 @@
+Faker==35.2.2
+numpy==1.24.4
+pandas==2.0.3
+pyarrow==17.0.0
+python-dateutil==2.9.0.post0
+pytz==2026.2
+six==1.17.0
+typing_extensions==4.13.2
+tzdata==2026.3

@@ -18,7 +18,7 @@ This repository is **not about the model**. A fraud classifier is a handful of l
 The offline / batch foundation: generating realistic data and landing it in a serverless lakehouse, provisioned entirely as code.
 
 ```
-generate.py  ──►  raw (S3, JSONL)
+data_generator.py  ──►  raw (S3, JSONL)
                      │
                      ▼
              Bronze  (Glue PySpark → Apache Iceberg)   ◄── YOU ARE HERE

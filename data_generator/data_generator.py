@@ -16,7 +16,7 @@ Decisiones MLOps clave:
     porque es el tiempo logico del negocio.
 
 Uso:
-  python generate.py --customers 2000 --days 60 --out ./output --seed 42
+  python data_generator.py --customers 2000 --days 60 --out ./output --seed 42
 """
 
 from __future__ import annotations

@@ -1,0 +1,178 @@
+# ==============================================================================
+# Reglas de calidad de dato — capa Silver
+# ==============================================================================
+# Este archivo desacopla la POLITICA de calidad (que se considera dato valido)
+# de la MECANICA (el job de Spark que la aplica). Cambiar un umbral aqui no
+# requiere tocar codigo ni redesplegar: se sube el YAML a S3 y la siguiente
+# corrida lo toma.
+#
+# Vive versionado en el repo. run_silver.sh lo sube a s3://<bucket>/config/
+# al desplegar, de modo que Git conserva el historial de cambios de reglas
+# (auditable: quien cambio que umbral y cuando).
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# 1. VALIDACIONES POR FILA
+# ------------------------------------------------------------------------------
+# Se evaluan fila por fila. Las que NO cumplen no se descartan: se apartan en
+# silver.quarantine etiquetadas con reject_reason, para poder auditar que se
+# rechazo y por que. Invariante: silver.transactions + quarantine = bronze.
+#
+#   expr:          expresion SQL de Spark; TRUE = la fila es valida
+#   reject_reason: etiqueta que se escribe en quarantine cuando falla
+# ------------------------------------------------------------------------------
+row_validations:
+
+  - name: transaction_id_present
+    expr: "transaction_id IS NOT NULL AND transaction_id <> ''"
+    reject_reason: "llave ausente"
+
+  - name: event_timestamp_present
+    expr: "event_timestamp IS NOT NULL"
+    reject_reason: "event_timestamp nulo"
+
+  - name: event_timestamp_not_future
+    # Un evento con fecha futura indica reloj desincronizado en el origen
+    # o corrupcion de dato. Se tolera 1h de skew entre relojes.
+    expr: "event_timestamp <= current_timestamp() + INTERVAL 1 HOUR"
+    reject_reason: "timestamp futuro"
+
+  - name: amount_present
+    expr: "amount IS NOT NULL"
+    reject_reason: "monto nulo"
+
+  - name: amount_non_negative
+    # OJO: no se acota por arriba a proposito. Un monto altisimo puede ser
+    # fraude legitimo a detectar (ver nota de outliers al pie del archivo).
+    expr: "amount >= 0"
+    reject_reason: "monto negativo"
+
+  - name: customer_id_present
+    expr: "customer_id IS NOT NULL"
+    reject_reason: "customer_id nulo"
+
+  - name: merchant_id_present
+    expr: "merchant_id IS NOT NULL"
+    reject_reason: "merchant_id nulo"
+
+
+# ------------------------------------------------------------------------------
+# 2. INTEGRIDAD REFERENCIAL
+# ------------------------------------------------------------------------------
+# Verifica que las llaves foraneas apunten a entidades que existen de verdad.
+# Una transaccion de un cliente fantasma es dato roto, no fraude.
+# ------------------------------------------------------------------------------
+referential_checks:
+
+  - name: customer_exists
+    column: customer_id
+    ref_table: customers
+    ref_column: customer_id
+    reject_reason: "cliente inexistente"
+
+  - name: merchant_exists
+    column: merchant_id
+    ref_table: merchants
+    ref_column: merchant_id
+    reject_reason: "comercio inexistente"
+
+
+# ------------------------------------------------------------------------------
+# 3. DEDUPLICACION
+# ------------------------------------------------------------------------------
+# Ante transaction_id repetidos, se conserva la version mas reciente por
+# ingestion_timestamp: si un dato se reproceso, la ultima que llego es la
+# corregida. Los duplicados descartados se registran en quarantine.
+# ------------------------------------------------------------------------------
+deduplication:
+  key: transaction_id
+  order_by: ingestion_timestamp
+  keep: latest
+  reject_reason: "duplicado (version antigua)"
+
+
+# ------------------------------------------------------------------------------
+# 4. CHEQUEOS POR LOTE (distribucion)
+# ------------------------------------------------------------------------------
+# Se evaluan sobre el conjunto completo, no fila por fila. Responden a
+# "¿este lote tiene la forma que deberia?" en vez de "¿esta fila es valida?".
+#
+# severity:
+#   critical -> el pipeline o el origen esta ROTO. Detiene el job; no se
+#               publica Silver. No se negocia.
+#   warn     -> el dato CAMBIO, posiblemente por una razon legitima. Se
+#               registra en silver.quality_checks y el job continua.
+#
+# Todos los resultados (pass y fail) se escriben en silver.quality_checks
+# con su valor observado, para tener historial aunque nada falle.
+# ------------------------------------------------------------------------------
+batch_checks:
+
+  # --- criticas: algo se rompio rio arriba ---
+
+  - name: bronze_not_empty
+    severity: critical
+    metric: row_count
+    min: 1
+    description: "Bronze llego vacio: no tiene caso procesar"
+
+  - name: quarantine_rate_acceptable
+    severity: critical
+    metric: quarantine_rate
+    max: 0.05
+    description: ">5% del lote rechazado indica problema sistemico, no ruido"
+
+  - name: key_columns_not_mostly_null
+    severity: critical
+    metric: max_null_rate
+    columns: [transaction_id, amount, event_timestamp]
+    max: 0.50
+    description: ">50% de nulos en columna clave: cambio el esquema o el origen"
+
+  # --- vigilancia: el dato cambio, hay que mirarlo ---
+
+  - name: fraud_rate_in_range
+    severity: warn
+    metric: fraud_rate
+    min: 0.0005
+    max: 0.02
+    description: "Esperado ~0.25%. Fuera de rango: revisar generador u origen"
+
+  - name: channel_mix_not_skewed
+    severity: warn
+    metric: max_category_share
+    column: channel
+    max: 0.80
+    description: "Un canal dominando >80% sugiere feed parcial o roto"
+
+  - name: country_mix_not_skewed
+    severity: warn
+    metric: max_category_share
+    column: country
+    max: 0.90
+    description: "Un pais dominando >90% sugiere filtro accidental en el origen"
+
+  - name: amount_mean_plausible
+    severity: warn
+    metric: column_mean
+    column: amount
+    min: 1.0
+    max: 5000.0
+    description: "Monto promedio fuera de rango: posible error de unidad o divisa"
+
+
+# ==============================================================================
+# NOTA DE DISENO — por que NO hay reglas de outliers
+# ==============================================================================
+# En un pipeline generico, marcar y limpiar valores extremos (un monto 100x lo
+# normal) seria razonable. En deteccion de fraude seria un error grave: el
+# outlier ES LA SEÑAL, no el ruido. Un monto absurdo o una compra en otro pais
+# minutos despues de una local son exactamente los patrones que el modelo debe
+# aprender a cazar. Filtrarlos aqui equivaldria a borrar el fraude antes de
+# intentar detectarlo.
+#
+# Por eso la anomalia no se limpia en Silver: se MIDE en la capa de features
+# (Parte 3), como desviacion respecto al patron historico del cliente, y se
+# convierte en insumo del modelo.
+# ==============================================================================

@@ -9,7 +9,7 @@
 | Part | Layer | Status |
 |------|-------|--------|
 | **1** | [Batch ingestion — Bronze on Iceberg](docs/part-1-bronze.md) | ✅ Complete |
-| **2** | Silver — data quality, quarantine & profiling | 🔨 In progress |
+| **2** | [Silver — data quality, quarantine & profiling](docs/part-2-silver.md) | ✅ Complete |
 | **3** | Feature pipeline & feature store | Planned |
 | **4** | Training, experiment tracking & model registry | Planned |
 | **5** | Serving & drift monitoring | Planned |
@@ -25,7 +25,7 @@ generate.py  ──►  raw (S3, JSONL)
              Bronze  (Glue PySpark → Apache Iceberg)     ✅ Part 1
                      │        typed, idempotent, lineage-tracked
                      ▼
-             Silver  (validation, quarantine, profiling)  🔨 Part 2
+             Silver  (validation, quarantine, profiling)  ✅ Part 2
                      │        trustworthy data + auditable rejects
                      ▼
          Feature pipeline → Feature store                 Part 3
@@ -59,17 +59,20 @@ Everything is serverless and pay-per-use. Nothing runs 24/7 — a full pipeline 
 fraud-detection-mlops/
 ├── README.md                     # you are here
 ├── docs/
-│   └── part-1-bronze.md          # design decisions & deep dive per part
+│   ├── part-1-bronze.md          # design decisions & deep dive per part
+│   └── part-2-silver.md
 ├── requirements.txt
 ├── run_bronze.sh                 # deploy + run the Bronze job end to end
+├── run_silver.sh                 # deploy + run the Silver job, then reconcile
 ├── config/
-│   └── quality_rules.yaml        # declarative data quality rules (Part 2)
+│   └── quality_rules.yaml        # declarative data quality rules
 ├── data_generator/
-│   └── generate.py               # synthetic transactions + delayed labels + dimensions
+│   └── data_generator.py               # synthetic transactions + delayed labels + dimensions
 ├── glue_jobs/
-│   └── bronze_ingest.py          # raw JSONL → idempotent Iceberg tables
+│   ├── bronze_ingest.py          # raw JSONL → idempotent Iceberg tables
+│   └── silver_clean.py           # validation, quarantine, dedup, profiling
 └── infra/
-    └── main.tf                   # S3, IAM, Glue Catalog DB, Glue jobs (Terraform)
+    └── main.tf                   # S3, IAM, Glue Catalog DBs, Glue jobs (Terraform)
 ```
 
 ## Quick start
@@ -82,7 +85,7 @@ All commands run from the repository root.
 # Environment + dataset
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python data_generator/generate.py --customers 2000 --days 60 --out ./output --seed 42
+python data_generator/data_generator.py --customers 2000 --days 60 --out ./output --seed 42
 
 # Infrastructure
 terraform -chdir=infra init
@@ -90,12 +93,21 @@ terraform -chdir=infra apply
 
 # Run the pipeline
 ./run_bronze.sh
+./run_silver.sh
 
 # Tear down when finished
 terraform -chdir=infra destroy
 ```
 
-See [Part 1](docs/part-1-bronze.md) for what this builds, the design decisions behind it, and how to validate the results in Athena.
+To watch the quality layer work, generate with injected defects and reconcile the
+manifest it prints against `silver.quarantine`:
+
+```bash
+python data_generator/data_generator.py --customers 2000 --days 60 --dirty-rate 0.001 --out ./output
+```
+
+See [Part 1](docs/part-1-bronze.md) and [Part 2](docs/part-2-silver.md) for the design
+decisions behind each layer and how to validate the results in Athena.
 
 ## Cost
 

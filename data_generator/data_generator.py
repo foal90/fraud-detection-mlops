@@ -19,8 +19,8 @@ Decisiones MLOps clave:
     conteos concilian 1:1 contra silver.quarantine por reject_reason.
 
 Uso:
-  python generate.py --customers 2000 --days 60 --out ./output --seed 42
-  python generate.py --customers 2000 --days 60 --dirty-rate 0.001 --out ./output
+  python data_generator.py --customers 2000 --days 60 --out ./output --seed 42
+  python data_generator.py --customers 2000 --days 60 --dirty-rate 0.001 --out ./output
 """
 
 from __future__ import annotations
@@ -113,6 +113,10 @@ def build_dimensions(fake: Faker, rng: np.random.Generator,
             "amt_std": float(rng.uniform(5, 60)),
             "n_cards": int(rng.integers(1, 4)),
             "active_hours": sorted(rng.choice(range(7, 23), size=6, replace=False).tolist()),
+            # dispositivos habituales del cliente (telefono, laptop, tablet...).
+            # El fraude usara uno NUEVO, fuera de este set: asi is_new_device es
+            # una feature legitima y no un delator (ver nota al pie del archivo).
+            "devices": [uid(rng, "dev", 8) for _ in range(int(rng.integers(1, 4)))],
         }
         for _ in range(profiles[cid]["n_cards"]):
             card_id = uid(rng, "card", 12)
@@ -145,6 +149,11 @@ def make_txn(rng, profile, card_id, merchants, ts, amount=None,
     m = merchants[int(rng.integers(len(merchants)))]
     if amount is None:
         amount = max(1.0, float(rng.normal(profile["amt_mean"], profile["amt_std"])))
+    ch = channel or str(rng.choice(CHANNELS, p=[0.55, 0.35, 0.10]))
+    if device_id is None and ch in ("online", "pos"):
+        # actividad normal: uno de los dispositivos habituales del cliente.
+        # atm no lleva dispositivo (un cajero no es un device del cliente).
+        device_id = str(rng.choice(profile["devices"]))
     return {
         "transaction_id": uid(rng, "txn", 32),
         "event_timestamp": iso(ts),
@@ -153,7 +162,7 @@ def make_txn(rng, profile, card_id, merchants, ts, amount=None,
         "merchant_id": m["merchant_id"],
         "amount": round(amount, 2),
         "currency": "MXN" if (country or profile["home"]) == "MX" else "USD",
-        "channel": channel or str(rng.choice(CHANNELS, p=[0.55, 0.35, 0.10])),
+        "channel": ch,
         "country": country or profile["home"],
         "device_id": device_id,
         "ingestion_timestamp": iso(ts + timedelta(seconds=int(rng.integers(2, 90)))),
@@ -365,3 +374,24 @@ if __name__ == "__main__":
                          "0 = dataset limpio. Ejercita la cuarentena de Silver.")
     a = ap.parse_args()
     generate(a.out, a.customers, a.merchants, a.days, a.seed, a.dirty_rate)
+
+
+# ==============================================================================
+# NOTA DE DISENO — device_id no puede delatar al fraude
+# ==============================================================================
+# Primera version: las transacciones normales dejaban device_id en NULL y solo
+# el fraude estrenaba dispositivo. Resultado: "device_id IS NOT NULL" predecia
+# fraude con precision casi perfecta. Un modelo lo habria encontrado en
+# segundos y habria aprendido un ARTEFACTO DEL GENERADOR, no una señal real.
+# Es el mismo pecado que evitan las etiquetas retrasadas, colado por otra
+# puerta: una columna que solo existe cuando la respuesta es "si".
+#
+# Ahora TODA transaccion online/pos lleva dispositivo: los clientes usan sus
+# 1-3 habituales; el fraude usa uno nuevo, fuera de ese set. La señal deja de
+# ser "¿hay dispositivo?" (delator) y pasa a ser "¿es un dispositivo que este
+# cliente ya habia usado antes?" — una feature legitima, que la capa de
+# features calcula mirando solo el pasado del cliente.
+#
+# Regla general: si una columna existe SOLO en las filas positivas, no es una
+# feature, es la etiqueta disfrazada.
+# ==============================================================================

@@ -57,6 +57,18 @@ resource "aws_s3_object" "silver_script" {
   etag   = filemd5("${path.module}/../glue_jobs/silver_clean.py")
 }
 
+resource "aws_s3_object" "gold_script" {
+  bucket = aws_s3_bucket.lake.id
+  key    = "scripts/gold_features.py"
+  source = "${path.module}/../glue_jobs/gold_features.py"
+  etag   = filemd5("${path.module}/../glue_jobs/gold_features.py")
+}
+
+# OJO: features.zip NO se gestiona aqui. Comprimir el paquete de features es un
+# paso de BUILD, no infraestructura, y vive en run_gold.sh. Asi ciencia de datos
+# puede agregar archivos a features/ sin tocar este .tf. El job de abajo apunta
+# a la ruta en S3; run_gold.sh la publica antes de disparar.
+
 # Las reglas de calidad viven versionadas en el repo; aqui se publican a S3
 # para que el job las lea en tiempo de ejecucion.
 resource "aws_s3_object" "quality_rules" {
@@ -107,6 +119,10 @@ resource "aws_glue_catalog_database" "bronze" {
 
 resource "aws_glue_catalog_database" "silver" {
   name = "silver"
+}
+
+resource "aws_glue_catalog_database" "gold" {
+  name = "gold"
 }
 
 # ---------- Glue Jobs ----------
@@ -162,6 +178,35 @@ resource "aws_glue_job" "silver_clean" {
   }
 }
 
+resource "aws_glue_job" "gold_features" {
+  name              = "${var.project}-gold-features"
+  role_arn          = aws_iam_role.glue.arn
+  glue_version      = "5.0"
+  worker_type       = "G.1X"
+  number_of_workers = 2
+
+  command {
+    name            = "glueetl"
+    script_location = "s3://${aws_s3_bucket.lake.id}/scripts/gold_features.py"
+    python_version  = "3"
+  }
+
+  default_arguments = {
+    "--job-language"     = "python"
+    "--datalake-formats" = "iceberg"
+    # El paquete de features que entrega ciencia de datos. Glue lo agrega a
+    # sys.path, y el motor hace `import features`. run_gold.sh lo publica.
+    "--extra-py-files" = "s3://${aws_s3_bucket.lake.id}/scripts/features.zip"
+    "--silver_db"      = aws_glue_catalog_database.silver.name
+    "--database"       = aws_glue_catalog_database.gold.name
+    # corte de conocimiento de etiquetas; run_gold.sh lo sobrescribe por corrida
+    "--as_of"          = "now"
+    "--TempDir"        = "s3://${aws_s3_bucket.lake.id}/temp/"
+    "--enable-metrics" = "true"
+    "--conf"           = local.iceberg_conf
+  }
+}
+
 output "bucket" {
   value = aws_s3_bucket.lake.id
 }
@@ -170,4 +215,7 @@ output "glue_job" {
 }
 output "glue_job_silver" {
   value = aws_glue_job.silver_clean.name
+}
+output "glue_job_gold" {
+  value = aws_glue_job.gold_features.name
 }

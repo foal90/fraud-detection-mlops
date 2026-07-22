@@ -10,7 +10,7 @@
 |------|-------|--------|
 | **1** | [Batch ingestion — Bronze on Iceberg](docs/part-1-bronze.md) | ✅ Complete |
 | **2** | [Silver — data quality, quarantine & profiling](docs/part-2-silver.md) | ✅ Complete |
-| **3** | Feature pipeline & feature store | Planned |
+| **3** | [Gold — the feature layer](docs/part-3-features.md) | ✅ Complete |
 | **4** | Training, experiment tracking & model registry | Planned |
 | **5** | Serving & drift monitoring | Planned |
 
@@ -19,7 +19,7 @@ Each part is tagged in Git (`part-1-bronze`, …), so you can browse the reposit
 ## Architecture
 
 ```
-generate.py  ──►  raw (S3, JSONL)
+data_generator.py  ──►  raw (S3, JSONL)
                      │
                      ▼
              Bronze  (Glue PySpark → Apache Iceberg)     ✅ Part 1
@@ -28,8 +28,8 @@ generate.py  ──►  raw (S3, JSONL)
              Silver  (validation, quarantine, profiling)  ✅ Part 2
                      │        trustworthy data + auditable rejects
                      ▼
-         Feature pipeline → Feature store                 Part 3
-                     │        point-in-time correct, train/serve consistent
+         Gold — features (point-in-time, train/serve safe)  ✅ Part 3
+                     │        one row per txn, ready to train
                      ▼
          Training → MLflow → Model registry               Part 4
                      │
@@ -60,17 +60,24 @@ fraud-detection-mlops/
 ├── README.md                     # you are here
 ├── docs/
 │   ├── part-1-bronze.md          # design decisions & deep dive per part
-│   └── part-2-silver.md
+│   ├── part-2-silver.md
+│   └── part-3-features.md
 ├── requirements.txt
 ├── run_bronze.sh                 # deploy + run the Bronze job end to end
 ├── run_silver.sh                 # deploy + run the Silver job, then reconcile
+├── run_gold.sh                   # package feature code, run the Gold job
+├── features/                     # feature definitions ("delivered by DS")
+│   ├── __init__.py               # the @feature contract + point-in-time windows
+│   ├── shared.py                 # tier 1: reusable entity features
+│   └── fraud.py                  # tier 2: fraud-model features
 ├── config/
 │   └── quality_rules.yaml        # declarative data quality rules
 ├── data_generator/
 │   └── data_generator.py               # synthetic transactions + delayed labels + dimensions
 ├── glue_jobs/
 │   ├── bronze_ingest.py          # raw JSONL → idempotent Iceberg tables
-│   └── silver_clean.py           # validation, quarantine, dedup, profiling
+│   ├── silver_clean.py           # validation, quarantine, dedup, profiling
+│   └── gold_features.py          # point-in-time feature engine
 └── infra/
     └── main.tf                   # S3, IAM, Glue Catalog DBs, Glue jobs (Terraform)
 ```
@@ -94,6 +101,7 @@ terraform -chdir=infra apply
 # Run the pipeline
 ./run_bronze.sh
 ./run_silver.sh
+./run_gold.sh
 
 # Tear down when finished
 terraform -chdir=infra destroy
@@ -106,8 +114,16 @@ manifest it prints against `silver.quarantine`:
 python data_generator/data_generator.py --customers 2000 --days 60 --dirty-rate 0.001 --out ./output
 ```
 
-See [Part 1](docs/part-1-bronze.md) and [Part 2](docs/part-2-silver.md) for the design
-decisions behind each layer and how to validate the results in Athena.
+To rebuild the feature set as it stood on a past date — only labels known by then
+count as trainable:
+
+```bash
+AS_OF=2026-02-15 ./run_gold.sh
+```
+
+See [Part 1](docs/part-1-bronze.md), [Part 2](docs/part-2-silver.md) and
+[Part 3](docs/part-3-features.md) for the design decisions behind each layer and how
+to validate the results in Athena.
 
 ## Cost
 
